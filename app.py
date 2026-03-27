@@ -213,15 +213,18 @@ header p{font-size:.75rem;opacity:.75;margin-top:2px}
 
 /* ─── Product list ─── */
 .list{padding:12px 12px 80px}
-.product-card{
+.product-wrap{
   background:var(--card);border-radius:var(--r);
-  box-shadow:var(--sh);margin-bottom:10px;
+  box-shadow:var(--sh);margin-bottom:10px;overflow:hidden;
+}
+.product-card{
+  background:transparent;border:none;border-radius:0;box-shadow:none;
   display:flex;align-items:center;gap:12px;
   padding:14px 16px;cursor:pointer;
-  transition:transform .12s,box-shadow .12s;
-  border:none;width:100%;text-align:left;
+  transition:background .12s;
+  width:100%;text-align:left;
 }
-.product-card:active{transform:scale(.98);box-shadow:none}
+.product-card:active{background:var(--bg)}
 .pc-icon{
   width:42px;height:42px;border-radius:10px;
   background:var(--pl);color:var(--p);
@@ -238,17 +241,21 @@ header p{font-size:.75rem;opacity:.75;margin-top:2px}
 .pc-best{font-size:.72rem;font-weight:700;margin-top:3px}
 .pc-best.is-best{color:var(--dn)}
 .pc-best.not-best{color:var(--up)}
-.pc-stock{display:flex;align-items:center;gap:5px;margin-top:6px}
+.pc-stock{
+  display:flex;align-items:center;gap:8px;
+  padding:7px 16px 9px 70px;
+  border-top:1px solid var(--bd);
+}
 .stock-btn{
-  width:22px;height:22px;border-radius:6px;
+  width:26px;height:26px;border-radius:7px;
   border:1.5px solid var(--bd);background:var(--bg);
-  font-size:.85rem;font-weight:700;cursor:pointer;line-height:1;
+  font-size:.9rem;font-weight:700;cursor:pointer;line-height:1;
   display:flex;align-items:center;justify-content:center;
   flex-shrink:0;transition:background .1s;
 }
 .stock-btn:active{background:var(--bd)}
 .stock-btn:disabled{opacity:.4;cursor:default}
-.stock-num{font-size:.82rem;font-weight:800;min-width:32px;text-align:center}
+.stock-num{font-size:.82rem;font-weight:800;min-width:36px;text-align:center}
 .stock-num.s-ok  {color:var(--dn)}
 .stock-num.s-low {color:#f97316}
 .stock-num.s-zero{color:var(--sub)}
@@ -540,34 +547,36 @@ function renderList() {
         : `<div class="pc-best not-best">最安 ¥${p.best_unit_price.toFixed(1)}/単位</div>`;
     }
 
-    // 在庫数バッジ
+    // 在庫ストリップ（カードボタンの外に置くことでネストを回避）
     const esc = p.name.replace(/'/g,"\\'");
-    let stockHtml = '';
+    let stockStrip = '';
     if (p.stock !== undefined && p.stock !== null) {
-      const sc = p.stock <= 0 ? 's-zero' : p.stock === 1 ? 's-low' : 's-ok';
+      const sc    = p.stock <= 0 ? 's-zero' : p.stock === 1 ? 's-low' : 's-ok';
       const label = p.stock <= 0 ? '在庫なし' : `${p.stock}個`;
-      stockHtml = `
+      stockStrip = `
         <div class="pc-stock">
-          <button class="stock-btn" onclick="event.stopPropagation();updateStock('${esc}',-1,this)">－</button>
+          <button class="stock-btn" onclick="updateStock('${esc}',-1,this)">－</button>
           <span class="stock-num ${sc}">${label}</span>
-          <button class="stock-btn" onclick="event.stopPropagation();updateStock('${esc}',+1,this)">＋</button>
+          <button class="stock-btn" onclick="updateStock('${esc}',+1,this)">＋</button>
         </div>`;
     }
 
     return `
-      <button class="product-card" onclick="openProduct('${esc}')">
-        <div class="pc-icon">${icon}</div>
-        <div class="pc-body">
-          <div class="pc-name">${p.name}</div>
-          <div class="pc-meta">${meta}</div>
-          ${stockHtml}
-        </div>
-        <div class="pc-price">
-          <div class="pc-price-val">${priceStr}</div>
-          <div class="pc-price-sub">${unitStr}</div>
-          ${bestHtml}
-        </div>
-      </button>`;
+      <div class="product-wrap">
+        <button class="product-card" onclick="openProduct('${esc}')">
+          <div class="pc-icon">${icon}</div>
+          <div class="pc-body">
+            <div class="pc-name">${p.name}</div>
+            <div class="pc-meta">${meta}</div>
+          </div>
+          <div class="pc-price">
+            <div class="pc-price-val">${priceStr}</div>
+            <div class="pc-price-sub">${unitStr}</div>
+            ${bestHtml}
+          </div>
+        </button>
+        ${stockStrip}
+      </div>`;
   }).join('');
 }
 
