@@ -213,18 +213,15 @@ header p{font-size:.75rem;opacity:.75;margin-top:2px}
 
 /* ─── Product list ─── */
 .list{padding:12px 12px 80px}
-.product-wrap{
-  background:var(--card);border-radius:var(--r);
-  box-shadow:var(--sh);margin-bottom:10px;overflow:hidden;
-}
 .product-card{
-  background:transparent;border:none;border-radius:0;box-shadow:none;
+  background:var(--card);border-radius:var(--r);
+  box-shadow:var(--sh);margin-bottom:10px;
   display:flex;align-items:center;gap:12px;
   padding:14px 16px;cursor:pointer;
-  transition:background .12s;
-  width:100%;text-align:left;
+  transition:transform .12s,box-shadow .12s;
+  border:none;width:100%;text-align:left;
 }
-.product-card:active{background:var(--bg)}
+.product-card:active{transform:scale(.98);box-shadow:none}
 .pc-icon{
   width:42px;height:42px;border-radius:10px;
   background:var(--pl);color:var(--p);
@@ -241,24 +238,30 @@ header p{font-size:.75rem;opacity:.75;margin-top:2px}
 .pc-best{font-size:.72rem;font-weight:700;margin-top:3px}
 .pc-best.is-best{color:var(--dn)}
 .pc-best.not-best{color:var(--up)}
-.pc-stock{
-  display:flex;align-items:center;gap:8px;
-  padding:7px 16px 9px 70px;
-  border-top:1px solid var(--bd);
+.stock-badge{font-size:.75rem;font-weight:700;margin-top:3px}
+.stock-badge.s-ok  {color:var(--dn)}
+.stock-badge.s-low {color:#f97316}
+.stock-badge.s-zero{color:var(--sub)}
+
+/* シート内の在庫コントロール */
+.stock-ctrl{
+  display:flex;align-items:center;gap:0;
+  background:var(--bg);border-radius:10px;
+  border:1.5px solid var(--bd);overflow:hidden;
+  width:fit-content;
 }
-.stock-btn{
-  width:26px;height:26px;border-radius:7px;
-  border:1.5px solid var(--bd);background:var(--bg);
-  font-size:.9rem;font-weight:700;cursor:pointer;line-height:1;
-  display:flex;align-items:center;justify-content:center;
-  flex-shrink:0;transition:background .1s;
+.stock-ctrl-btn{
+  width:40px;height:40px;border:none;background:transparent;
+  font-size:1.1rem;font-weight:700;cursor:pointer;color:var(--p);
+  transition:background .1s;
 }
-.stock-btn:active{background:var(--bd)}
-.stock-btn:disabled{opacity:.4;cursor:default}
-.stock-num{font-size:.82rem;font-weight:800;min-width:36px;text-align:center}
-.stock-num.s-ok  {color:var(--dn)}
-.stock-num.s-low {color:#f97316}
-.stock-num.s-zero{color:var(--sub)}
+.stock-ctrl-btn:active{background:var(--bd)}
+.stock-ctrl-btn:disabled{opacity:.4;cursor:default}
+.stock-ctrl-num{
+  min-width:52px;text-align:center;font-size:1rem;font-weight:800;
+  border-left:1.5px solid var(--bd);border-right:1.5px solid var(--bd);
+  padding:0 6px;line-height:40px;
+}
 
 .empty{text-align:center;color:var(--sub);padding:60px 20px;font-size:.9rem}
 .loading{text-align:center;color:var(--sub);padding:40px;font-size:.9rem}
@@ -410,6 +413,17 @@ datalist{display:none}
     <div id="prev-content"></div>
   </div>
 
+  <!-- 在庫数コントロール -->
+  <div class="form-section" id="stock-section" style="display:none">
+    <label class="form-label">📦 在庫数</label>
+    <div class="stock-ctrl">
+      <button class="stock-ctrl-btn" onclick="sheetStock(-1,this)">－</button>
+      <span class="stock-ctrl-num" id="sheet-stock-num">—</span>
+      <button class="stock-ctrl-btn" onclick="sheetStock(+1,this)">＋</button>
+    </div>
+  </div>
+  <div class="form-section" style="border-top:1px solid var(--bd);margin:0 -20px 20px;padding-top:0"></div>
+
   <!-- 入力フォーム -->
   <div class="form-section">
     <label class="form-label" for="f-name">商品名</label>
@@ -441,17 +455,11 @@ datalist{display:none}
     </div>
   </div>
 
-  <div class="form-section row2">
-    <div>
-      <label class="form-label" for="f-store">🏪 購入場所</label>
-      <select id="f-store">
-        <option value="">— 選択 —</option>
-      </select>
-    </div>
-    <div>
-      <label class="form-label" for="f-stock">📦 在庫数（個）</label>
-      <input type="number" id="f-stock" placeholder="例: 2" min="0" inputmode="numeric">
-    </div>
+  <div class="form-section">
+    <label class="form-label" for="f-store">🏪 購入場所</label>
+    <select id="f-store">
+      <option value="">— 選択 —</option>
+    </select>
   </div>
 
   <!-- 比較結果 -->
@@ -547,36 +555,29 @@ function renderList() {
         : `<div class="pc-best not-best">最安 ¥${p.best_unit_price.toFixed(1)}/単位</div>`;
     }
 
-    // 在庫ストリップ（カードボタンの外に置くことでネストを回避）
+    // 在庫バッジ（数字表示のみ）
     const esc = p.name.replace(/'/g,"\\'");
-    let stockStrip = '';
-    if (p.stock !== undefined && p.stock !== null) {
+    let stockBadge = '';
+    if (p.stock != null) {
       const sc    = p.stock <= 0 ? 's-zero' : p.stock === 1 ? 's-low' : 's-ok';
-      const label = p.stock <= 0 ? '在庫なし' : `${p.stock}個`;
-      stockStrip = `
-        <div class="pc-stock">
-          <button class="stock-btn" onclick="updateStock('${esc}',-1,this)">－</button>
-          <span class="stock-num ${sc}">${label}</span>
-          <button class="stock-btn" onclick="updateStock('${esc}',+1,this)">＋</button>
-        </div>`;
+      const label = p.stock <= 0 ? '在庫なし' : `在庫 ${p.stock}個`;
+      stockBadge  = `<div class="stock-badge ${sc}">${label}</div>`;
     }
 
     return `
-      <div class="product-wrap">
-        <button class="product-card" onclick="openProduct('${esc}')">
-          <div class="pc-icon">${icon}</div>
-          <div class="pc-body">
-            <div class="pc-name">${p.name}</div>
-            <div class="pc-meta">${meta}</div>
-          </div>
-          <div class="pc-price">
-            <div class="pc-price-val">${priceStr}</div>
-            <div class="pc-price-sub">${unitStr}</div>
-            ${bestHtml}
-          </div>
-        </button>
-        ${stockStrip}
-      </div>`;
+      <button class="product-card" onclick="openProduct('${esc}')">
+        <div class="pc-icon">${icon}</div>
+        <div class="pc-body">
+          <div class="pc-name">${p.name}</div>
+          <div class="pc-meta">${meta}</div>
+          ${stockBadge}
+        </div>
+        <div class="pc-price">
+          <div class="pc-price-val">${priceStr}</div>
+          <div class="pc-price-sub">${unitStr}</div>
+          ${bestHtml}
+        </div>
+      </button>`;
   }).join('');
 }
 
@@ -608,11 +609,11 @@ function openNew() {
   document.getElementById('f-name').readOnly = false;
   document.getElementById('f-price').value = '';
   document.getElementById('f-volume').value = '';
-  document.getElementById('f-stock').value = '';
   document.getElementById('f-cat').value = '';
   document.getElementById('f-store').value = '';
   document.getElementById('f-date').value = new Date().toISOString().slice(0,10);
   document.getElementById('prev-block').style.display = 'none';
+  document.getElementById('stock-section').style.display = 'none';
   openSheet();
 }
 
@@ -622,7 +623,6 @@ async function openProduct(name) {
   document.getElementById('f-name').readOnly = true;
   document.getElementById('f-price').value = '';
   document.getElementById('f-volume').value = '';
-  document.getElementById('f-stock').value = '';
   document.getElementById('f-date').value = new Date().toISOString().slice(0,10);
 
   // 前回データを取得（最新1件）
@@ -644,11 +644,20 @@ async function openProduct(name) {
       ${unitLine}
       <div class="prev-meta">${badges}</div>`;
 
-    // 購入場所・カテゴリ・在庫数をプリセット
+    // 購入場所・カテゴリをプリセット
     if (prev.store)    document.getElementById('f-store').value  = prev.store;
     if (prev.category) document.getElementById('f-cat').value    = prev.category;
     if (prev.volume)   document.getElementById('f-volume').value = prev.volume;
-    if (prev.stock != null) document.getElementById('f-stock').value = prev.stock;
+
+    // 在庫コントロール表示
+    if (prev.stock != null) {
+      document.getElementById('stock-section').style.display = 'block';
+      document.getElementById('sheet-stock-num').textContent =
+        prev.stock <= 0 ? '在庫なし' : `${prev.stock}個`;
+      document.getElementById('sheet-stock-num').dataset.stock = prev.stock;
+    } else {
+      document.getElementById('stock-section').style.display = 'none';
+    }
   } else {
     pb.style.display = 'block';
     pc.innerHTML = '<div class="no-prev">前回のデータがありません（初回登録）</div>';
@@ -752,7 +761,6 @@ async function savePurchase() {
   msg.textContent = '保存中…';
   msg.style.color = 'var(--sub)';
 
-  const stockVal = document.getElementById('f-stock').value;
   const body = {
     name,
     price,
@@ -760,7 +768,6 @@ async function savePurchase() {
     category: document.getElementById('f-cat').value,
     store:    document.getElementById('f-store').value,
     date:     document.getElementById('f-date').value,
-    stock:    stockVal !== '' ? parseInt(stockVal) : null,
   };
 
   try {
@@ -792,8 +799,9 @@ async function savePurchase() {
   }
 }
 
-// ── Stock ±1 ───────────────────────────────────────────────────────────────
-async function updateStock(name, delta, el) {
+// ── Sheet stock ±1 ─────────────────────────────────────────────────────────
+async function sheetStock(delta, el) {
+  const name = document.getElementById('f-name').value;
   el.disabled = true;
   try {
     const r = await fetch('/api/stock', {
@@ -803,6 +811,9 @@ async function updateStock(name, delta, el) {
     });
     const d = await r.json();
     if (d.ok) {
+      const numEl = document.getElementById('sheet-stock-num');
+      numEl.textContent = d.stock <= 0 ? '在庫なし' : `${d.stock}個`;
+      numEl.dataset.stock = d.stock;
       const p = products.find(p => p.name === name);
       if (p) { p.stock = d.stock; renderList(); }
     }
