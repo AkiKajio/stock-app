@@ -87,13 +87,14 @@ def get_products():
             latest[name] = r
         if r["unit_price"] > 0:
             if name not in best_unit or r["unit_price"] < best_unit[name]["unit_price"]:
-                best_unit[name] = {"unit_price": r["unit_price"], "store": r["store"]}
+                best_unit[name] = {"unit_price": r["unit_price"], "store": r["store"], "price": r["price"]}
 
     # 最安値情報をマージ
     for name, p in latest.items():
         b = best_unit.get(name)
         p["best_unit_price"] = b["unit_price"] if b else 0
         p["best_store"]      = b["store"]      if b else ""
+        p["best_price"]      = b["price"]      if b else 0
 
     products   = sorted(latest.values(), key=lambda x: x["name"])
     categories = sorted({r["category"] for r in records if r["category"]})
@@ -550,9 +551,13 @@ function renderList() {
     let bestHtml = '';
     if (p.best_unit_price > 0 && p.unit_price > 0) {
       const isBest = Math.abs(p.unit_price - p.best_unit_price) < 0.001;
-      bestHtml = isBest
-        ? `<div class="pc-best is-best">★ 最安値</div>`
-        : `<div class="pc-best not-best">最安 ¥${p.best_unit_price.toFixed(1)}/単位</div>`;
+      if (isBest) {
+        bestHtml = `<div class="pc-best is-best">★ 最安値</div>`;
+      } else {
+        const bestPriceStr = p.best_price ? `¥${p.best_price.toLocaleString('ja-JP')}` : '';
+        const bestUnitStr  = `¥${p.best_unit_price.toFixed(1)}/単位`;
+        bestHtml = `<div class="pc-best not-best">最安 ${bestPriceStr}（${bestUnitStr}）</div>`;
+      }
     }
 
     // 在庫バッジ（数字表示のみ）
