@@ -60,6 +60,7 @@ def parse(page):
         "unit_price": round(price / vol, 2) if vol else 0,
         "store":    sel("購入場所"),
         "memo":     txt("メモ"),
+        "stock":    num("在庫数"),
     }
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -100,6 +101,36 @@ def get_products():
 
     return jsonify({"products": products, "categories": categories, "names": names})
 
+@app.route("/api/stock", methods=["PATCH"])
+def update_stock():
+    d = request.json
+    name  = d.get("name", "")
+    delta = int(d.get("delta", 0))
+
+    # 対象商品の最新レコードを取得
+    pages = notion_query({
+        "page_size": 1,
+        "filter": {"property": "商品名", "title": {"equals": name}},
+        "sorts":  [{"property": "購入日", "direction": "descending"}]
+    })
+    if not pages:
+        return jsonify({"ok": False, "error": "商品が見つかりません"}), 404
+
+    page     = pages[0]
+    page_id  = page["id"]
+    current  = (page["properties"].get("在庫数") or {}).get("number") or 0
+    new_stock = max(0, current + delta)
+
+    r = requests.patch(
+        f"https://api.notion.com/v1/pages/{page_id}",
+        headers=HEADERS,
+        json={"properties": {"在庫数": {"number": new_stock}}},
+        timeout=10
+    )
+    if r.status_code == 200:
+        return jsonify({"ok": True, "stock": new_stock})
+    return jsonify({"ok": False, "error": r.text}), 400
+
 @app.route("/api/history/<path:name>")
 def get_history(name):
     pages = notion_query({
@@ -121,6 +152,7 @@ def save():
     if d.get("volume"):   props["容量"]       = {"number": float(d["volume"])}
     if d.get("store"):    props["購入場所"]   = {"select": {"name": d["store"]}}
     if d.get("memo"):     props["メモ"]       = {"rich_text": [{"text": {"content": d["memo"]}}]}
+    if d.get("stock") is not None: props["在庫数"] = {"number": int(d["stock"])}
 
     r = requests.post("https://api.notion.com/v1/pages",
                       headers=HEADERS,
@@ -206,6 +238,20 @@ header p{font-size:.75rem;opacity:.75;margin-top:2px}
 .pc-best{font-size:.72rem;font-weight:700;margin-top:3px}
 .pc-best.is-best{color:var(--dn)}
 .pc-best.not-best{color:var(--up)}
+.pc-stock{display:flex;align-items:center;gap:5px;margin-top:6px}
+.stock-btn{
+  width:22px;height:22px;border-radius:6px;
+  border:1.5px solid var(--bd);background:var(--bg);
+  font-size:.85rem;font-weight:700;cursor:pointer;line-height:1;
+  display:flex;align-items:center;justify-content:center;
+  flex-shrink:0;transition:background .1s;
+}
+.stock-btn:active{background:var(--bd)}
+.stock-btn:disabled{opacity:.4;cursor:default}
+.stock-num{font-size:.82rem;font-weight:800;min-width:32px;text-align:center}
+.stock-num.s-ok  {color:var(--dn)}
+.stock-num.s-low {color:#f97316}
+.stock-num.s-zero{color:var(--sub)}
 
 .empty{text-align:center;color:var(--sub);padding:60px 20px;font-size:.9rem}
 .loading{text-align:center;color:var(--sub);padding:40px;font-size:.9rem}
@@ -388,11 +434,17 @@ datalist{display:none}
     </div>
   </div>
 
-  <div class="form-section">
-    <label class="form-label" for="f-store">🏪 購入場所</label>
-    <select id="f-store">
-      <option value="">— 選択 —</option>
-    </select>
+  <div class="form-section row2">
+    <div>
+      <label class="form-label" for="f-store">🏪 購入場所</label>
+      <select id="f-store">
+        <option value="">— 選択 —</option>
+      </select>
+    </div>
+    <div>
+      <label class="form-label" for="f-stock">📦 在庫数（個）</label>
+      <input type="number" id="f-stock" placeholder="例: 2" min="0" inputmode="numeric">
+    </div>
   </div>
 
   <!-- 比較結果 -->
@@ -483,19 +535,32 @@ function renderList() {
     let bestHtml = '';
     if (p.best_unit_price > 0 && p.unit_price > 0) {
       const isBest = Math.abs(p.unit_price - p.best_unit_price) < 0.001;
-      if (isBest) {
-        bestHtml = `<div class="pc-best is-best">★ 最安値</div>`;
-      } else {
-        bestHtml = `<div class="pc-best not-best">最安 ¥${p.best_unit_price.toFixed(1)}/単位</div>`;
-      }
+      bestHtml = isBest
+        ? `<div class="pc-best is-best">★ 最安値</div>`
+        : `<div class="pc-best not-best">最安 ¥${p.best_unit_price.toFixed(1)}/単位</div>`;
+    }
+
+    // 在庫数バッジ
+    const esc = p.name.replace(/'/g,"\\'");
+    let stockHtml = '';
+    if (p.stock !== undefined && p.stock !== null) {
+      const sc = p.stock <= 0 ? 's-zero' : p.stock === 1 ? 's-low' : 's-ok';
+      const label = p.stock <= 0 ? '在庫なし' : `${p.stock}個`;
+      stockHtml = `
+        <div class="pc-stock">
+          <button class="stock-btn" onclick="event.stopPropagation();updateStock('${esc}',-1,this)">－</button>
+          <span class="stock-num ${sc}">${label}</span>
+          <button class="stock-btn" onclick="event.stopPropagation();updateStock('${esc}',+1,this)">＋</button>
+        </div>`;
     }
 
     return `
-      <button class="product-card" onclick="openProduct('${p.name.replace(/'/g,"\\'")}')">
+      <button class="product-card" onclick="openProduct('${esc}')">
         <div class="pc-icon">${icon}</div>
         <div class="pc-body">
           <div class="pc-name">${p.name}</div>
           <div class="pc-meta">${meta}</div>
+          ${stockHtml}
         </div>
         <div class="pc-price">
           <div class="pc-price-val">${priceStr}</div>
@@ -534,6 +599,7 @@ function openNew() {
   document.getElementById('f-name').readOnly = false;
   document.getElementById('f-price').value = '';
   document.getElementById('f-volume').value = '';
+  document.getElementById('f-stock').value = '';
   document.getElementById('f-cat').value = '';
   document.getElementById('f-store').value = '';
   document.getElementById('f-date').value = new Date().toISOString().slice(0,10);
@@ -547,6 +613,7 @@ async function openProduct(name) {
   document.getElementById('f-name').readOnly = true;
   document.getElementById('f-price').value = '';
   document.getElementById('f-volume').value = '';
+  document.getElementById('f-stock').value = '';
   document.getElementById('f-date').value = new Date().toISOString().slice(0,10);
 
   // 前回データを取得（最新1件）
@@ -568,10 +635,11 @@ async function openProduct(name) {
       ${unitLine}
       <div class="prev-meta">${badges}</div>`;
 
-    // 購入場所・カテゴリをプリセット
-    if (prev.store)    document.getElementById('f-store').value = prev.store;
-    if (prev.category) document.getElementById('f-cat').value   = prev.category;
+    // 購入場所・カテゴリ・在庫数をプリセット
+    if (prev.store)    document.getElementById('f-store').value  = prev.store;
+    if (prev.category) document.getElementById('f-cat').value    = prev.category;
     if (prev.volume)   document.getElementById('f-volume').value = prev.volume;
+    if (prev.stock != null) document.getElementById('f-stock').value = prev.stock;
   } else {
     pb.style.display = 'block';
     pc.innerHTML = '<div class="no-prev">前回のデータがありません（初回登録）</div>';
@@ -675,6 +743,7 @@ async function savePurchase() {
   msg.textContent = '保存中…';
   msg.style.color = 'var(--sub)';
 
+  const stockVal = document.getElementById('f-stock').value;
   const body = {
     name,
     price,
@@ -682,6 +751,7 @@ async function savePurchase() {
     category: document.getElementById('f-cat').value,
     store:    document.getElementById('f-store').value,
     date:     document.getElementById('f-date').value,
+    stock:    stockVal !== '' ? parseInt(stockVal) : null,
   };
 
   try {
@@ -711,6 +781,24 @@ async function savePurchase() {
     msg.style.color = 'var(--up)';
     btn.disabled = false;
   }
+}
+
+// ── Stock ±1 ───────────────────────────────────────────────────────────────
+async function updateStock(name, delta, el) {
+  el.disabled = true;
+  try {
+    const r = await fetch('/api/stock', {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name, delta})
+    });
+    const d = await r.json();
+    if (d.ok) {
+      const p = products.find(p => p.name === name);
+      if (p) { p.stock = d.stock; renderList(); }
+    }
+  } catch(e) { console.error(e); }
+  el.disabled = false;
 }
 
 // ── Boot ───────────────────────────────────────────────────────────────────
