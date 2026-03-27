@@ -76,11 +76,23 @@ def get_products():
     })
     records = [parse(p) for p in pages if parse(p)["name"]]
 
-    # 商品ごとに最新1件だけ残す
-    latest = {}
+    # 商品ごとに最新1件 + 全履歴から最安単価を計算
+    latest    = {}
+    best_unit = {}  # 商品名 → {unit_price, store}
+
     for r in records:
-        if r["name"] not in latest:
-            latest[r["name"]] = r
+        name = r["name"]
+        if name not in latest:
+            latest[name] = r
+        if r["unit_price"] > 0:
+            if name not in best_unit or r["unit_price"] < best_unit[name]["unit_price"]:
+                best_unit[name] = {"unit_price": r["unit_price"], "store": r["store"]}
+
+    # 最安値情報をマージ
+    for name, p in latest.items():
+        b = best_unit.get(name)
+        p["best_unit_price"] = b["unit_price"] if b else 0
+        p["best_store"]      = b["store"]      if b else ""
 
     products   = sorted(latest.values(), key=lambda x: x["name"])
     categories = sorted({r["category"] for r in records if r["category"]})
@@ -191,6 +203,9 @@ header p{font-size:.75rem;opacity:.75;margin-top:2px}
 .pc-price{text-align:right;flex-shrink:0}
 .pc-price-val{font-size:1.05rem;font-weight:800;color:var(--tx)}
 .pc-price-sub{font-size:.72rem;color:var(--sub);margin-top:2px}
+.pc-best{font-size:.72rem;font-weight:700;margin-top:3px}
+.pc-best.is-best{color:var(--dn)}
+.pc-best.not-best{color:var(--up)}
 
 .empty{text-align:center;color:var(--sub);padding:60px 20px;font-size:.9rem}
 .loading{text-align:center;color:var(--sub);padding:40px;font-size:.9rem}
@@ -463,6 +478,18 @@ function renderList() {
     const unitStr  = (p.unit_price && p.volume)
       ? `¥${p.unit_price.toFixed(1)}/単位` : '';
     const meta = [p.store, p.date ? p.date.slice(0,7) : ''].filter(Boolean).join(' · ');
+
+    // 最安値バッジ（単価データがある場合のみ）
+    let bestHtml = '';
+    if (p.best_unit_price > 0 && p.unit_price > 0) {
+      const isBest = Math.abs(p.unit_price - p.best_unit_price) < 0.001;
+      if (isBest) {
+        bestHtml = `<div class="pc-best is-best">★ 最安値</div>`;
+      } else {
+        bestHtml = `<div class="pc-best not-best">最安 ¥${p.best_unit_price.toFixed(1)}/単位</div>`;
+      }
+    }
+
     return `
       <button class="product-card" onclick="openProduct('${p.name.replace(/'/g,"\\'")}')">
         <div class="pc-icon">${icon}</div>
@@ -473,6 +500,7 @@ function renderList() {
         <div class="pc-price">
           <div class="pc-price-val">${priceStr}</div>
           <div class="pc-price-sub">${unitStr}</div>
+          ${bestHtml}
         </div>
       </button>`;
   }).join('');
